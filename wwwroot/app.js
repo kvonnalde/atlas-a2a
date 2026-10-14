@@ -25,8 +25,12 @@ function renderDiagnostics(diagnostics) {
     MalformedResponse: 'Invalid response'
   };
   indicator.dataset.state = diagnostics.state || 'Unknown';
-  setText('connection-label', stateLabels[diagnostics.state] || diagnostics.state || 'Unknown');
-  setText('diagnostics-message', diagnostics.message, 'No diagnostics available.');
+  const foundryReady = diagnostics.foundryConfigured === true;
+  const atlasMissing = diagnostics.state === 'MissingConfiguration';
+  setText('connection-label', foundryReady && atlasMissing ? 'Foundry ready' : stateLabels[diagnostics.state] || diagnostics.state || 'Unknown');
+  setText('diagnostics-message', foundryReady && atlasMissing
+    ? 'Foundry can answer general questions. Configure the Atlas Agent Card URL only for Atlas-specific questions.'
+    : diagnostics.message, 'No diagnostics available.');
   setText('diag-card', diagnostics.agentCardUrl);
   setText('diag-endpoint', diagnostics.endpoint);
   setText('diag-protocol', diagnostics.protocolVersion ? `A2A ${diagnostics.protocolVersion} / JSON-RPC` : 'A2A 1.0');
@@ -34,8 +38,9 @@ function renderDiagnostics(diagnostics) {
   setText('diag-task', diagnostics.taskId, 'None');
   setText('diag-latency', Number.isFinite(diagnostics.latencyMs) ? `${diagnostics.latencyMs} ms` : null, 'None');
 
-  setText('agent-name', diagnostics.agentName, 'Atlas Agent');
-  setText('agent-version', diagnostics.agentVersion ? `Version ${diagnostics.agentVersion}` : null, 'Waiting for Agent Card');
+  setText('agent-name', diagnostics.agentName, foundryReady && atlasMissing ? 'Foundry Assistant' : 'Atlas Agent');
+  setText('agent-version', diagnostics.agentVersion ? `Version ${diagnostics.agentVersion}` : null,
+    foundryReady && atlasMissing ? 'General chat available' : 'Waiting for Agent Card');
   const skills = document.querySelector('#skill-list');
   skills.replaceChildren();
   for (const skill of diagnostics.skills || []) {
@@ -54,13 +59,13 @@ function addMessage(role, content, metadata = {}) {
   const mark = document.createElement('span');
   mark.className = 'message-mark';
   mark.setAttribute('aria-hidden', 'true');
-  mark.textContent = role === 'user' ? 'YOU' : 'A';
+  mark.textContent = role === 'user' ? 'YOU' : metadata.source === 'Foundry' ? 'F' : 'A';
   const body = document.createElement('div');
   body.className = 'message-body';
   const meta = document.createElement('div');
   meta.className = 'message-meta';
   const author = document.createElement('strong');
-  author.textContent = role === 'user' ? 'You' : 'Atlas Agent';
+  author.textContent = role === 'user' ? 'You' : metadata.source === 'Foundry' ? 'Foundry Assistant' : 'Atlas Agent';
   const time = document.createElement('span');
   time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   meta.append(author, time);
@@ -69,7 +74,7 @@ function addMessage(role, content, metadata = {}) {
   if (metadata.loading) {
     const loading = document.createElement('span');
     loading.className = 'loading-dots';
-    loading.textContent = 'Waiting for Atlas';
+    loading.textContent = 'Finding the right assistant';
     body.append(loading);
   } else {
     const text = document.createElement('div');
@@ -133,12 +138,12 @@ form.addEventListener('submit', async event => {
     renderDiagnostics(result.diagnostics || {});
     pending.remove();
     if (!response.ok || !result.success) {
-      chatError.textContent = result.error || 'The Atlas request could not be completed.';
+      chatError.textContent = result.error || 'The assistant could not complete the request.';
       chatError.hidden = false;
-      addMessage('assistant', result.error || 'The Atlas request could not be completed.');
+      addMessage('assistant', result.error || 'The assistant could not complete the request.', { source: result.source });
       return;
     }
-    addMessage('assistant', result.answer, { taskStatus: result.taskStatus, artifacts: result.artifacts });
+    addMessage('assistant', result.answer, { source: result.source, taskStatus: result.taskStatus, artifacts: result.artifacts });
   } catch (error) {
     pending.remove();
     if (error.name !== 'AbortError') {

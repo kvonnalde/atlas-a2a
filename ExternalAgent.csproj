@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="A2A" Version="1.0.0-preview2" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

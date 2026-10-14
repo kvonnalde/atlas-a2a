@@ -9,6 +9,7 @@ public sealed class AtlasA2AService(
     AtlasConfiguration configuration,
     IAtlasA2AProtocol protocol,
     IBearerTokenProvider tokenProvider,
+    IFoundryChatService foundryChat,
     TimeSpan? requestTimeout = null,
     TimeSpan? discoveryTimeout = null,
     TimeSpan? pollInterval = null)
@@ -20,7 +21,10 @@ public sealed class AtlasA2AService(
     private AtlasDiagnostics _diagnostics = AtlasDiagnostics.Empty;
     private readonly SemaphoreSlim _discoveryLock = new(1, 1);
 
-    public AtlasDiagnostics Diagnostics => Volatile.Read(ref _diagnostics);
+    public AtlasDiagnostics Diagnostics => Volatile.Read(ref _diagnostics) with
+    {
+        FoundryConfigured = foundryChat.IsConfigured
+    };
 
     public async Task<AtlasDiagnostics> DiscoverAsync(CancellationToken cancellationToken)
     {
@@ -117,6 +121,33 @@ public sealed class AtlasA2AService(
 
     public async Task<ChatResult> AskAsync(string question, CancellationToken cancellationToken)
     {
+        if (configuration.Foundry.HasAnySettings && !configuration.Foundry.IsConfigured)
+        {
+            return FoundryFailure("Foundry chat settings are incomplete. Configure the endpoint, model, and API key.");
+        }
+
+        if (foundryChat.IsConfigured)
+        {
+            FoundryRouteResult route;
+            try
+            {
+                route = await foundryChat.RouteAndAnswerAsync(question, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                return FoundryFailure("The Foundry chat request failed. Check the model deployment and settings.");
+            }
+
+            if (!route.RequiresAtlas)
+            {
+                return new ChatResult(true, route.Answer, null, [], null, Diagnostics) { Source = "Foundry" };
+            }
+        }
+
         var discovery = Diagnostics;
         if (discovery.State != "Ready" || !Uri.TryCreate(configuration.AgentCardUrl, UriKind.Absolute, out _) ||
             string.IsNullOrWhiteSpace(discovery.Endpoint))
@@ -208,6 +239,9 @@ public sealed class AtlasA2AService(
             return new ChatResult(false, null, null, [], messageText, updated);
         }
     }
+
+    private ChatResult FoundryFailure(string message) =>
+        new(false, null, null, [], message, Diagnostics) { Source = "Foundry" };
 
     private AtlasDiagnostics DiscoveryFailure(Uri cardUrl, Exception exception)
     {
@@ -360,6 +394,7 @@ public sealed record AtlasDiagnostics
     public static AtlasDiagnostics Empty => new() { State = "Unknown", Message = "Atlas discovery has not run." };
     public string State { get; init; } = "Unknown";
     public string Message { get; init; } = string.Empty;
+    public bool FoundryConfigured { get; init; }
     public string? AgentCardUrl { get; init; }
     public string? AgentName { get; init; }
     public string? AgentVersion { get; init; }
@@ -379,4 +414,7 @@ public sealed record ChatResult(
     string? TaskStatus,
     IReadOnlyList<string> Artifacts,
     string? Error,
-    AtlasDiagnostics Diagnostics);
+    AtlasDiagnostics Diagnostics)
+{
+    public string Source { get; init; } = "Atlas";
+}

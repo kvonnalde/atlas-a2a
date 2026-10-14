@@ -1,11 +1,17 @@
 using ExternalAgent;
 
 var builder = WebApplication.CreateBuilder(args);
+if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WEBSITE_INSTANCE_ID")))
+{
+    LocalEnvironmentFile.Load(Path.Combine(builder.Environment.ContentRootPath, ".env"));
+}
+
 var atlasConfiguration = AtlasConfiguration.FromEnvironment();
 
 builder.Services.AddSingleton(atlasConfiguration);
 builder.Services.AddSingleton<IBearerTokenProvider, EnvironmentBearerTokenProvider>();
 builder.Services.AddSingleton<IAtlasA2AProtocol, SdkAtlasA2AProtocol>();
+builder.Services.AddSingleton<IFoundryChatService, FoundryChatService>();
 builder.Services.AddSingleton<AtlasA2AService>();
 builder.Services.AddHostedService<AtlasDiscoveryOnStartup>();
 

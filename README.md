@@ -22,6 +22,10 @@ dotnet run --urls http://127.0.0.1:5080
 
 Set `ATLAS_A2A_BEARER_TOKEN` in the process environment using your approved secure method when Atlas requires bearer authorization. The client does not guess an authentication mode. A missing token is sent as no Authorization header; Atlas 401/403 responses are shown explicitly.
 
+To enable general chat, configure `FOUNDRY_ENDPOINT`, `FOUNDRY_MODEL`, and `FOUNDRY_API_KEY`. `FOUNDRY_ENDPOINT` is the Target URI shown for the Foundry deployment; the Azure OpenAI SDK builds the chat-completions request for the selected deployment. Use the exact deployment name for `FOUNDRY_MODEL`. The app uses the deployment to classify each question and answer general questions in the same request. For Atlas-specific questions, it discards any model answer and sends the original question directly to Atlas over A2A. Foundry settings are optional; without them, chat continues to use Atlas only. The question text is sent to Foundry for routing, so follow your organization's data-handling requirements.
+
+In local Development, values in `.env` are loaded without overriding variables already set in the process environment. In Azure App Service, add the endpoint and deployment name as application settings, and store the API key as a protected setting or Key Vault reference. Do not commit a real key.
+
 HTTP Atlas URLs are rejected except for loopback development when both the URL is localhost/loopback and `ATLAS_ALLOW_HTTP_LOCALHOST=true`. The local browser app itself can be served on loopback HTTP as shown above; this does not permit HTTP to a non-loopback Atlas host.
 
 Open <http://127.0.0.1:5080>. On startup, the app attempts Agent Card discovery. Use the refresh control in Diagnostics to retry after correcting the environment and restarting the process.

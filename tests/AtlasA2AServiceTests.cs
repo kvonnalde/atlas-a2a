@@ -104,6 +104,57 @@ public sealed class AtlasA2AServiceTests
     }
 
     [Fact]
+    public async Task GeneralQuestionIsAnsweredByFoundryWithoutCallingAtlas()
+    {
+        var protocol = new FakeProtocol();
+        var foundry = new FakeFoundryChatService
+        {
+            IsConfigured = true,
+            RouteResult = new FoundryRouteResult(false, "A hexagon has six sides.")
+        };
+        var service = CreateService(new AtlasConfiguration(null, false), protocol, foundry);
+
+        var result = await service.AskAsync("How many sides does a hexagon have?", CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("A hexagon has six sides.", result.Answer);
+        Assert.Equal("Foundry", result.Source);
+        Assert.True(result.Diagnostics.FoundryConfigured);
+        Assert.Equal(0, protocol.SendCalls);
+    }
+
+    [Fact]
+    public async Task AtlasQuestionUsesAtlasAnswerInsteadOfFoundryAnswer()
+    {
+        var protocol = new FakeProtocol
+        {
+            SendResponse = new SendMessageResponse
+            {
+                Message = new Message
+                {
+                    MessageId = "atlas-reply",
+                    Role = Role.Agent,
+                    Parts = [Part.FromText("Atlas context answer.")]
+                }
+            }
+        };
+        var foundry = new FakeFoundryChatService
+        {
+            IsConfigured = true,
+            RouteResult = new FoundryRouteResult(true, "This text must be ignored.")
+        };
+        var service = CreateService(new AtlasConfiguration(CardUrl, false), protocol, foundry);
+        await service.DiscoverAsync(CancellationToken.None);
+
+        var result = await service.AskAsync("What does Atlas support?", CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("Atlas context answer.", result.Answer);
+        Assert.Equal("Atlas", result.Source);
+        Assert.Equal(1, protocol.SendCalls);
+    }
+
+    [Fact]
     public async Task TaskResponseIsRetrievedUntilTerminalAndReturnsTextArtifacts()
     {
         var protocol = new FakeProtocol
@@ -167,9 +218,19 @@ public sealed class AtlasA2AServiceTests
     private static AtlasA2AService CreateService(
         AtlasConfiguration configuration,
         FakeProtocol protocol,
+        FakeFoundryChatService? foundry = null,
         TimeSpan? requestTimeout = null,
         TimeSpan? pollInterval = null) =>
-        new(configuration, protocol, new FakeTokenProvider(), requestTimeout, TimeSpan.FromMilliseconds(100), pollInterval);
+        new(configuration, protocol, new FakeTokenProvider(), foundry ?? new FakeFoundryChatService(), requestTimeout, TimeSpan.FromMilliseconds(100), pollInterval);
+
+    private sealed class FakeFoundryChatService : IFoundryChatService
+    {
+        public bool IsConfigured { get; init; }
+        public FoundryRouteResult RouteResult { get; init; } = new(true, null);
+
+        public Task<FoundryRouteResult> RouteAndAnswerAsync(string question, CancellationToken cancellationToken) =>
+            Task.FromResult(RouteResult);
+    }
 
     private static AgentTask CreateTask(string id, TaskState state, string? artifactText = null) => new()
     {
@@ -197,6 +258,7 @@ public sealed class AtlasA2AServiceTests
         public Func<Message, CancellationToken, Task<SendMessageResponse>>? SendHandler { get; init; }
         public Message? LastMessage { get; private set; }
         public int DiscoveryCalls { get; private set; }
+        public int SendCalls { get; private set; }
         public int GetTaskCalls { get; private set; }
 
         public Task<AgentCard> ResolveAgentCardAsync(Uri agentCardUrl, string? bearerToken, CancellationToken cancellationToken)
@@ -214,6 +276,7 @@ public sealed class AtlasA2AServiceTests
 
         public async Task<SendMessageResponse> SendMessageAsync(Uri endpoint, Message message, string? bearerToken, CancellationToken cancellationToken)
         {
+            SendCalls++;
             LastMessage = message;
             if (SendException is not null) throw SendException;
             if (SendHandler is not null) return await SendHandler(message, cancellationToken);
